@@ -1,0 +1,495 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String             @id @default(uuid())
+  createdAt          DateTime           @default(now())
+  nonce              String?
+  nonceExpiry        DateTime?
+  updatedAt          DateTime           @updatedAt
+  walletAddress      String             @unique
+  balance            Decimal            @default(0) @db.Decimal(78, 0)
+  type               UserType           @default(USER)
+  publicKey          String?            @unique
+  geoLocationId      String?            @unique
+  escalationPolicies EscalationPolicy[]
+  monitors           Monitor[]
+  monitorTicks       MonitorTick[]
+  proposals          Proposal[]
+  proposalComments   ProposalComment[]
+  proposalVotes      ProposalVote[]
+  sessions           Session[]
+  slackIntegrations  SlackIntegration[]
+  customPage         StatusPage[]
+  timelineEvents     TimelineEvent[]
+  geoLocation        GeoLocation?       @relation(fields: [geoLocationId], references: [id])
+  transactions       Transaction[]
+
+  goodTicks         Int                @default(0)
+  badTicks          Int                @default(0)
+
+  reputationScore     Int                @default(0)
+
+  // On-chain reputation claiming fields
+  claimedReputation   Int                @default(0)  // Transferred to on-chain balance
+  lastClaimAt         DateTime?                       // Last claim timestamp
+}
+
+model GeoLocation {
+  id                   String   @id @default(uuid())
+  ip                   String
+  country              String
+  countryCode          String?
+  city                 String?
+  postalCode           String?
+  continent            String?
+  continentCode        String?
+  latitude             Float
+  longitude            Float
+  timezoneAbbreviation String?
+  flag                 String?
+  updatedAt            DateTime @updatedAt
+  region               String?
+  regionCode           String?
+  user                 User?
+}
+
+model Monitor {
+  id                  String              @id @default(uuid())
+  name                String
+  url                 String
+  createdAt           DateTime            @default(now())
+  userId              String
+  checkInterval       Int                 @default(300)
+  expectedStatusCodes Int[]               @default([200, 201, 202, 204])
+  lastCheckedAt       DateTime?
+  status              MonitorStatus       @default(ACTIVE)
+  timeout             Int                 @default(30)
+  escalationPolicyId  String?
+  alerts              Alert[]
+  Incident            Incident[]
+  escalationPolicy    EscalationPolicy?   @relation(fields: [escalationPolicyId], references: [id])
+  user                User                @relation(fields: [userId], references: [id])
+  monitorTicks        MonitorTick[]
+  statusPageSections  StatusPageSection[]
+}
+
+model MonitorTick {
+  id            String            @default(uuid())
+  monitorId     String
+  validatorId   String
+  status        MonitorTickStatus
+  latency       Float
+  longitude     Float
+  latitude      Float
+  countryCode   String
+  continentCode String
+  city          String
+  createdAt     DateTime          @default(now()) @db.Timestamptz(6)
+  monitor       Monitor           @relation(fields: [monitorId], references: [id])
+  user          User              @relation(fields: [validatorId], references: [id])
+
+  @@id([id, createdAt])
+  @@index([createdAt])
+  @@index([city, createdAt])
+  @@index([continentCode, createdAt])
+  @@index([countryCode, createdAt])
+  @@index([monitorId, createdAt])
+  @@index([status, createdAt])
+}
+
+model EscalationPolicy {
+  id        String            @id @default(uuid())
+  name      String
+  enabled   Boolean           @default(true)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  userId    String
+  levels    EscalationLevel[]
+  user      User              @relation(fields: [userId], references: [id])
+  monitors  Monitor[]
+}
+
+model EscalationLevel {
+  id              String            @id @default(uuid())
+  escalationId    String
+  levelOrder      Int
+  waitMinutes     Int
+  contacts        String[]
+  channel         EscalationChannel @default(EMAIL)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  slackChannels Json?
+  escalation      EscalationPolicy  @relation(fields: [escalationId], references: [id])
+  escalationLogs  EscalationLog[]
+
+  @@unique([escalationId, levelOrder])
+  @@index([escalationId, levelOrder])
+}
+
+model Alert {
+  id                 String          @id @default(uuid())
+  title              String
+  message            String
+  triggerStatusCode  Int?
+  expectedStatusCode Int?
+  triggeredAt        DateTime        @default(now())
+  monitorId          String
+  incidentId         String?
+  type               IncidentType    @default(URL_UNAVAILABLE)
+  monitor            Monitor         @relation(fields: [monitorId], references: [id])
+  incident           Incident?       @relation(fields: [incidentId], references: [id])
+  EscalationLog      EscalationLog[]
+}
+
+model Incident {
+  id             String          @id @default(uuid())
+  title          String
+  status         IncidentStatus  @default(ONGOING)
+  monitorId      String
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime?       @updatedAt
+  resolvedAt     DateTime?
+  downtime       Int?
+  cause          IncidentType    @default(URL_UNAVAILABLE)
+  Monitor        Monitor         @relation(fields: [monitorId], references: [id])
+  timelineEvents TimelineEvent[]
+  alerts         Alert[]
+
+  @@index([monitorId])
+  @@index([monitorId, status])
+}
+
+model TimelineEvent {
+  id              String            @id @default(uuid())
+  description     String
+  incidentId      String
+  type            TimelineEventType @default(USER_COMMENT)
+  userId          String?
+  escalationLogId String?           @unique
+  createdAt       DateTime          @default(now())
+  escalationLog   EscalationLog?    @relation(fields: [escalationLogId], references: [id])
+  incident        Incident          @relation(fields: [incidentId], references: [id])
+  user            User?             @relation(fields: [userId], references: [id])
+}
+
+model EscalationLog {
+  id                String          @id @default(uuid())
+  alertId           String
+  wasAcknowledged   Boolean         @default(false)
+  acknowledgedAt    DateTime?
+  acknowledgedBy    String?
+  acknowledgedVia   EscalationChannel?
+  escalationLevelId String
+  Alert             Alert           @relation(fields: [alertId], references: [id])
+  escalationLevel   EscalationLevel @relation(fields: [escalationLevelId], references: [id])
+  timelineEvent     TimelineEvent?
+
+  @@index([alertId])
+  @@index([escalationLevelId])
+}
+
+model Session {
+  id            String   @id @default(uuid())
+  userId        String
+  sessionId     String   @unique
+  userAgent     String?
+  ipAddress     String?
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime
+  walletAddress String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([userId])
+  @@index([walletAddress])
+}
+
+model SlackIntegration {
+  id                 String   @id @default(uuid())
+  userId             String
+  teamId             String   @unique
+  teamName           String
+  accessToken        String
+  botUserId          String
+  scope              String
+  defaultChannelId   String?
+  defaultChannelName String?
+  webhookUrl         String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  isActive           Boolean  @default(true)
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([teamId])
+}
+
+model StatusPage {
+  id                 String              @id @default(uuid())
+  name               String
+  isPublished        Boolean             @default(false)
+  logoUrl            String?
+  logo               String?
+  supportUrl         String?
+  announcement       String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  userId             String
+  maintenances       Maintenance[]
+  user               User                @relation(fields: [userId], references: [id])
+  statusPageSections StatusPageSection[]
+  updates            Update[]
+}
+
+model StatusPageSection {
+  id               String                @id @default(uuid())
+  name             String
+  description      String?
+  order            Int
+  type             StatusPageSectionType
+  monitorId        String
+  statusPageId     String
+  maintenanceId    String?
+  affectedSections AffectedSections[]
+  maintenance      Maintenance?          @relation(fields: [maintenanceId], references: [id])
+  monitor          Monitor               @relation(fields: [monitorId], references: [id])
+  statusPage       StatusPage            @relation(fields: [statusPageId], references: [id])
+}
+
+model Update {
+  id               String             @id @default(uuid())
+  title            String
+  description      String
+  publishedAt      DateTime           @default(now())
+  statusPageId     String
+  affectedSections AffectedSections[]
+  statusPage       StatusPage         @relation(fields: [statusPageId], references: [id])
+}
+
+model AffectedSections {
+  id        String            @id @default(uuid())
+  updateId  String
+  sectionId String
+  status    AffectedStatus
+  section   StatusPageSection @relation(fields: [sectionId], references: [id])
+  update    Update            @relation(fields: [updateId], references: [id])
+}
+
+model Maintenance {
+  id                 String              @id @default(uuid())
+  title              String
+  description        String
+  from               DateTime
+  to                 DateTime
+  statusPageId       String
+  statusPage         StatusPage          @relation(fields: [statusPageId], references: [id])
+  statusPageSections StatusPageSection[]
+}
+
+/// Community governance models
+model Proposal {
+  id          String            @id @default(uuid())
+  title       String
+  description String
+  type        ProposalType
+  status      ProposalStatus    @default(SUBMITTED)
+  tags        String[]
+  userId      String
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  
+  // On-chain tracking fields
+  onChainId           Int?              @unique
+  contentHash         String?
+  creationTxHash      String?           @unique
+  finalizationTxHash  String?           @unique
+  votingEndsAt        DateTime?
+  onChainStatus       OnChainStatus     @default(DRAFT)
+  
+  user        User              @relation(fields: [userId], references: [id])
+  comments    ProposalComment[]
+  votes       ProposalVote[]
+  voteCaches  VoteCache[]
+
+  @@index([userId])
+  @@index([createdAt])
+  @@index([onChainId])
+  @@index([onChainStatus])
+  @@index([votingEndsAt])
+}
+
+model ProposalComment {
+  id         String   @id @default(uuid())
+  proposalId String
+  userId     String
+  content    String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  proposal   Proposal @relation(fields: [proposalId], references: [id])
+  user       User     @relation(fields: [userId], references: [id])
+
+  @@index([proposalId, createdAt])
+}
+
+model ProposalVote {
+  id         String   @id @default(uuid())
+  proposalId String
+  userId     String
+  vote       VoteType
+  createdAt  DateTime @default(now())
+  proposal   Proposal @relation(fields: [proposalId], references: [id])
+  user       User     @relation(fields: [userId], references: [id])
+
+  @@unique([proposalId, userId])
+  @@index([proposalId])
+}
+
+model VoteCache {
+  id                  String    @id @default(uuid())
+  proposalId          String
+  onChainProposalId   Int
+  voterAddress        String
+  voteType            VoteType
+  txHash              String    @unique
+  blockNumber         Int
+  createdAt           DateTime  @default(now())
+
+  proposal            Proposal  @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+
+  @@unique([proposalId, voterAddress])
+  @@index([proposalId])
+  @@index([onChainProposalId])
+  @@index([voterAddress])
+  @@index([txHash])
+}
+
+enum MonitorStatus {
+  ACTIVE
+  PAUSED
+  DOWN
+  RECOVERING
+}
+
+enum IncidentStatus {
+  ONGOING
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+enum TimelineEventType {
+  INCIDENT
+  USER_COMMENT
+  POSTMORTEM
+  ESCALATION
+  RESOLUTION
+}
+
+enum EscalationChannel {
+  EMAIL
+  SLACK
+  WEBHOOK
+}
+
+enum MonitorTickStatus {
+  GOOD
+  BAD
+}
+
+enum UserType {
+  USER
+  VALIDATOR
+}
+
+enum StatusPageSectionType {
+  STATUS
+  HISTORY
+  BOTH
+}
+
+enum AffectedStatus {
+  NONE
+  DOWNTIME
+  DEGRADED
+  RESOLVED
+}
+
+enum IncidentType {
+  TEST
+  URL_UNAVAILABLE
+}
+
+enum ProposalType {
+  FEATURE_REQUEST
+  CHANGE_REQUEST
+}
+
+enum ProposalStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  IMPLEMENTED
+}
+
+enum VoteType {
+  UPVOTE
+  DOWNVOTE
+}
+
+enum OnChainStatus {
+  DRAFT              // Not yet submitted on-chain
+  PENDING_ONCHAIN    // Transaction submitted, awaiting confirmation
+  ACTIVE             // On-chain and voting active
+  PASSED             // Finalized and passed
+  FAILED             // Finalized but failed
+}
+
+model Transaction {
+  id              String            @id @default(uuid())
+  type            TransactionType
+  fromAddress     String?
+  toAddress       String?
+  amount          String
+  transactionHash String            @unique
+  blockNumber     Int
+  status          TransactionStatus @default(PENDING)
+  createdAt       DateTime          @default(now())
+  processedAt     DateTime?
+  userId          String
+  user            User              @relation(fields: [userId], references: [id])
+
+  @@index([type, createdAt])
+  @@index([fromAddress, createdAt])
+  @@index([transactionHash])
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAWAL
+  REPUTATION_CLAIM
+}
+
+enum TransactionStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+}
+
+model BlockchainSyncState {
+  id           String   @id @default(cuid())
+  listenerName String   @unique
+  lastBlock    Int
+  updatedAt    DateTime @updatedAt
+
+  @@map("blockchain_sync_state")
+}

@@ -1,0 +1,38 @@
+{
+  "name": "w3uptime",
+  "private": true,
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
+    "check-types": "turbo run check-types",
+    "db:seed": "npm run db:seed -w packages/db",
+    "db:start": "docker-compose up timescaledb -d",
+    "db:stop": "docker-compose down",
+    "db:reset": "docker-compose down -v && docker-compose up timescaledb -d",
+    "db:logs": "docker-compose logs -f timescaledb",
+    "db:shell": "docker-compose exec timescaledb psql -U postgres -d myapp",
+    "pgadmin:start": "docker-compose up pgadmin -d",
+    "dev:services": "docker-compose -f docker-compose.yml up -d",
+    "dev:services:stop": "docker-compose down",
+    "finalize-proposals": "tsx scripts/finalize-proposals.ts",
+    "check-wallet-balance": "tsx scripts/check-wallet-balance.ts"
+  },
+  "devDependencies": {
+    "prettier": "^3.6.2",
+    "turbo": "^2.5.5",
+    "typescript": "5.8.3"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "packageManager": "npm@10.2.4",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "dependencies": {
+    "express-async-errors": "^3.1.1"
+  }
+}
