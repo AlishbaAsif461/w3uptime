@@ -1,4 +1,4 @@
-# W3Uptime - Decentralized Uptime Monitoring Platform
+# W3Uptime - Distributed Uptime Monitoring Platform
 
 W3Uptime is a comprehensive, distributed uptime monitoring platform built on blockchain technology. It combines decentralized validators, real-time monitoring, incident management, and community governance to provide transparent and reliable website uptime tracking.
 
